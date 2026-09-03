@@ -10,7 +10,7 @@ CORS(app)
 def home():
     return jsonify({'status': 'API is running'}), 200
 
-# ১. ভিডিও ডাউনলোডার (With/Without Audio লেবেলসহ)
+# ১. ভিডিও ডাউনলোডার (অডিও শনাক্তকরণ লজিক ফিক্সড)
 @app.route('/download-video', methods=['POST'])
 def download_video():
     data = request.get_json()
@@ -31,21 +31,27 @@ def download_video():
                 url_link = f.get('url')
                 vcodec = f.get('vcodec')
                 acodec = f.get('acodec')
+                format_id = str(f.get('format_id', '')).lower()
                 
-                # শুধু ভিডিও স্ট্রিম ফিল্টার
                 if not url_link or vcodec == 'none':
                     continue
 
                 height = f.get('height')
-                label = f"{height}p" if height else "Video"
+                res = f"{height}p" if height else ("HD" if "hd" in format_id else "SD")
                 
-                # অডিও আছে কি নাই তা পরীক্ষা করে লেবেল দেওয়া
+                # অডিও স্ট্যাটাস সঠিকভাবে বের করার লজিক
                 if acodec != 'none' and acodec is not None:
                     audio_status = "With Audio"
+                elif "hd" in format_id or "sd" in format_id or f.get('vcodec') != 'none':
+                    # ফেসবুকের ডিফল্ট প্রগ্রেসিভ ভিডিওগুলোতে অডিও যুক্ত থাকে
+                    if acodec == 'none':
+                        audio_status = "Without Audio"
+                    else:
+                        audio_status = "With Audio"
                 else:
                     audio_status = "Without Audio"
                 
-                quality_name = f"Video ({label}) - {audio_status}"
+                quality_name = f"Video ({res}) - {audio_status}"
                 
                 variants.append({
                     'quality': quality_name,
@@ -110,7 +116,7 @@ def download_audio():
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)}), 500
 
-# প্রক্সি সরাসরি সেভ রাউট
+# প্রক্সি ডাউনলোড রাউট
 @app.route('/proxy-download', methods=['GET'])
 def proxy_download():
     media_url = request.args.get('url')
