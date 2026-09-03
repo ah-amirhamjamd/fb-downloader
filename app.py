@@ -1,6 +1,7 @@
-from flask import Flask, request, jsonify
+from flask import Flask, request, jsonify, Response
 from flask_cors import CORS
 import yt_dlp
+import requests
 
 app = Flask(__name__)
 CORS(app)
@@ -24,46 +25,35 @@ def download():
         }
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             info = ydl.extract_info(url, download=False)
-            title = info.get('title', 'Facebook Media')
+            title = info.get('title', 'InsightsWonders_Media')
             formats = info.get('formats', [])
             
             variants = []
             
-            # অডিও স্ট্রিম এবং ভিডিও স্ট্রিম আলাদা করা
             for f in formats:
-                format_id = f.get('format_id', '')
-                ext = f.get('ext', 'mp4')
-                vcodec = f.get('vcodec')
-                acodec = f.get('acodec')
                 url_link = f.get('url')
-                
                 if not url_link:
                     continue
 
-                # অডিও ফরম্যাট
+                vcodec = f.get('vcodec')
+                acodec = f.get('acodec')
+                
                 if vcodec == 'none' and acodec != 'none':
                     variants.append({
-                        'quality': 'Audio Only (MP3/M4A)',
+                        'quality': 'Audio Only (MP3)',
                         'type': 'Audio',
                         'url': url_link
                     })
-                # ভিডিও ফরম্যাট (HD & SD)
                 elif vcodec != 'none':
                     height = f.get('height')
-                    label = f"{height}p" if height else f.get('format_note', 'Video')
-                    
-                    if 'hd' in label.lower() or (height and height >= 720):
-                        quality_name = f"HD Video ({label})"
-                    else:
-                        quality_name = f"SD Video ({label})"
-
+                    label = f"{height}p" if height else "Video"
+                    quality_name = f"HD Video ({label})" if (height and height >= 720) else f"SD Video ({label})"
                     variants.append({
                         'quality': quality_name,
                         'type': 'Video',
                         'url': url_link
                     })
 
-            # যদি কোনো ফিল্টার কাজ না করে তবে ডিফল্ট লিংক
             if not variants and info.get('url'):
                 variants.append({
                     'quality': 'Standard Quality',
@@ -71,17 +61,34 @@ def download():
                     'url': info.get('url')
                 })
 
-            # ডুপ্লিকেট ফরম্যাট দূর করা
-            unique_variants = {v['quality']: v for v in variants}.values()
+            unique_variants = list({v['quality']: v for v in variants}.values())
 
             return jsonify({
                 'success': True,
                 'title': title,
-                'variants': list(unique_variants)
+                'variants': unique_variants
             })
 
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)}), 500
+
+# সরাসরি ফাইল ডাউনলোড করানোর জন্য প্রক্সি রাউট
+@app.route('/proxy-download', methods=['GET'])
+def proxy_download():
+    media_url = request.args.get('url')
+    file_type = request.args.get('type', 'Video')
+    
+    if not media_url:
+        return "No URL provided", 400
+
+    ext = 'mp3' if file_type == 'Audio' else 'mp4'
+    filename = f"InsightsWonders_{file_type}_{int(request.args.get('t', 0))}.{ext}"
+
+    req = requests.get(media_url, stream=True)
+    
+    response = Response(req.iter_content(chunk_size=1024*1024), content_type=req.headers.get('content-type'))
+    response.headers['Content-Disposition'] = f'attachment; filename="{filename}"'
+    return response
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5000)
