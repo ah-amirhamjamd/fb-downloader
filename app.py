@@ -5,7 +5,6 @@ import yt_dlp
 app = Flask(__name__)
 CORS(app)
 
-# UptimeRobot-এর জন্য হোমপেজ রাউট
 @app.route('/', methods=['GET'])
 def home():
     return jsonify({'status': 'API is running'}), 200
@@ -20,20 +19,67 @@ def download():
 
     try:
         ydl_opts = {
-            'format': 'best',
             'quiet': True,
             'no_warnings': True,
         }
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             info = ydl.extract_info(url, download=False)
-            download_url = info.get('url')
-            title = info.get('title', 'Facebook Video')
+            title = info.get('title', 'Facebook Media')
+            formats = info.get('formats', [])
             
+            variants = []
+            
+            # অডিও স্ট্রিম এবং ভিডিও স্ট্রিম আলাদা করা
+            for f in formats:
+                format_id = f.get('format_id', '')
+                ext = f.get('ext', 'mp4')
+                vcodec = f.get('vcodec')
+                acodec = f.get('acodec')
+                url_link = f.get('url')
+                
+                if not url_link:
+                    continue
+
+                # অডিও ফরম্যাট
+                if vcodec == 'none' and acodec != 'none':
+                    variants.append({
+                        'quality': 'Audio Only (MP3/M4A)',
+                        'type': 'Audio',
+                        'url': url_link
+                    })
+                # ভিডিও ফরম্যাট (HD & SD)
+                elif vcodec != 'none':
+                    height = f.get('height')
+                    label = f"{height}p" if height else f.get('format_note', 'Video')
+                    
+                    if 'hd' in label.lower() or (height and height >= 720):
+                        quality_name = f"HD Video ({label})"
+                    else:
+                        quality_name = f"SD Video ({label})"
+
+                    variants.append({
+                        'quality': quality_name,
+                        'type': 'Video',
+                        'url': url_link
+                    })
+
+            # যদি কোনো ফিল্টার কাজ না করে তবে ডিফল্ট লিংক
+            if not variants and info.get('url'):
+                variants.append({
+                    'quality': 'Standard Quality',
+                    'type': 'Video',
+                    'url': info.get('url')
+                })
+
+            # ডুপ্লিকেট ফরম্যাট দূর করা
+            unique_variants = {v['quality']: v for v in variants}.values()
+
             return jsonify({
                 'success': True,
                 'title': title,
-                'download_url': download_url
+                'variants': list(unique_variants)
             })
+
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)}), 500
 
