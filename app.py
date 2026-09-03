@@ -10,7 +10,7 @@ CORS(app)
 def home():
     return jsonify({'status': 'API is running'}), 200
 
-# ১. ভিডিও ডাউনলোডার রাউট
+# ১. ভিডিও ডাউনলোডার (With/Without Audio লেবেলসহ)
 @app.route('/download-video', methods=['POST'])
 def download_video():
     data = request.get_json()
@@ -30,13 +30,22 @@ def download_video():
             for f in formats:
                 url_link = f.get('url')
                 vcodec = f.get('vcodec')
+                acodec = f.get('acodec')
+                
+                # শুধু ভিডিও স্ট্রিম ফিল্টার
                 if not url_link or vcodec == 'none':
                     continue
 
                 height = f.get('height')
-                format_note = f.get('format_note', '')
                 label = f"{height}p" if height else "Video"
-                quality_name = f"Best Quality ({label} - {format_note})" if format_note else f"Video ({label})"
+                
+                # অডিও আছে কি নাই তা পরীক্ষা করে লেবেল দেওয়া
+                if acodec != 'none' and acodec is not None:
+                    audio_status = "With Audio"
+                else:
+                    audio_status = "Without Audio"
+                
+                quality_name = f"Video ({label}) - {audio_status}"
                 
                 variants.append({
                     'quality': quality_name,
@@ -46,7 +55,7 @@ def download_video():
 
             if not variants and info.get('url'):
                 variants.append({
-                    'quality': 'HD/Original Quality',
+                    'quality': 'Original Video (With Audio)',
                     'type': 'Video',
                     'url': info.get('url')
                 })
@@ -57,7 +66,7 @@ def download_video():
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)}), 500
 
-# ২. অডিও ডাউনলোডার রাউট
+# ২. অডিও ডাউনলোডার
 @app.route('/download-audio', methods=['POST'])
 def download_audio():
     data = request.get_json()
