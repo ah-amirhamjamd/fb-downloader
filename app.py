@@ -5,6 +5,11 @@ import yt_dlp
 app = Flask(__name__)
 CORS(app)
 
+# UptimeRobot-এর জন্য হোমপেজ রাউট
+@app.route('/', methods=['GET'])
+def home():
+    return jsonify({'status': 'API is running'}), 200
+
 @app.route('/download', methods=['POST'])
 def download():
     data = request.get_json()
