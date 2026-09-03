@@ -1,7 +1,7 @@
 from flask import Flask, request, jsonify, Response
 from flask_cors import CORS
 import yt_dlp
-import requests
+import urllib.request
 
 app = Flask(__name__)
 CORS(app)
@@ -37,15 +37,18 @@ def download():
 
                 vcodec = f.get('vcodec')
                 acodec = f.get('acodec')
+                height = f.get('height')
                 
+                # ১. অডিও স্ট্রিম (Audio Only)
                 if vcodec == 'none' and acodec != 'none':
                     variants.append({
                         'quality': 'Audio Only (MP3)',
                         'type': 'Audio',
                         'url': url_link
                     })
-                elif vcodec != 'none':
-                    height = f.get('height')
+                
+                # ২. ভিডিও এবং অডিও দুটোই একসাথে আছে এমন ফরম্যাট (Combined Format)
+                elif vcodec != 'none' and acodec != 'none':
                     label = f"{height}p" if height else "Video"
                     quality_name = f"HD Video ({label})" if (height and height >= 720) else f"SD Video ({label})"
                     variants.append({
@@ -54,9 +57,10 @@ def download():
                         'url': url_link
                     })
 
-            if not variants and info.get('url'):
+            # যদি কোনো ফিল্টারে Combined ফরম্যাট না পাওয়া যায়, তবে বেস্ট ব্যাকআপ ফরম্যাট ব্যবহার হবে
+            if not any(v['type'] == 'Video' for v in variants) and info.get('url'):
                 variants.append({
-                    'quality': 'Standard Quality',
+                    'quality': 'Standard Quality (With Audio)',
                     'type': 'Video',
                     'url': info.get('url')
                 })
@@ -72,7 +76,7 @@ def download():
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)}), 500
 
-# সরাসরি ফাইল ডাউনলোড করানোর জন্য প্রক্সি রাউট
+# প্রক্সি ডাউনলোড রাউট
 @app.route('/proxy-download', methods=['GET'])
 def proxy_download():
     media_url = request.args.get('url')
@@ -84,9 +88,15 @@ def proxy_download():
     ext = 'mp3' if file_type == 'Audio' else 'mp4'
     filename = f"InsightsWonders_{file_type}_{int(request.args.get('t', 0))}.{ext}"
 
-    req = requests.get(media_url, stream=True)
-    
-    response = Response(req.iter_content(chunk_size=1024*1024), content_type=req.headers.get('content-type'))
+    def generate():
+        req = urllib.request.Request(media_url, headers={
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Safari/537.36'
+        })
+        with urllib.request.urlopen(req) as res:
+            while chunk := res.read(1024 * 1024):
+                yield chunk
+
+    response = Response(generate(), content_type='application/octet-stream')
     response.headers['Content-Disposition'] = f'attachment; filename="{filename}"'
     return response
 
