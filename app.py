@@ -10,8 +10,9 @@ CORS(app)
 def home():
     return jsonify({'status': 'API is running'}), 200
 
-@app.route('/download', methods=['POST'])
-def download():
+# ১. ভিডিও ডাউনলোডার (সরাসরি অরিজিনাল কোয়ালিটির ভিডিও লিংক বের করবে)
+@app.route('/download-video', methods=['POST'])
+def download_video():
     data = request.get_json()
     url = data.get('url') if data else None
     
@@ -25,43 +26,89 @@ def download():
         }
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             info = ydl.extract_info(url, download=False)
-            title = info.get('title', 'InsightsWonders_Media')
+            title = info.get('title', 'InsightsWonders_Video')
             formats = info.get('formats', [])
             
             variants = []
             
             for f in formats:
                 url_link = f.get('url')
-                if not url_link:
+                vcodec = f.get('vcodec')
+                if not url_link or vcodec == 'none':
                     continue
 
-                vcodec = f.get('vcodec')
-                acodec = f.get('acodec')
                 height = f.get('height')
+                format_note = f.get('format_note', '')
                 
-                # ১. অডিও স্ট্রিম (Audio Only)
-                if vcodec == 'none' and acodec != 'none':
+                label = f"{height}p" if height else "Video"
+                quality_name = f"Best Quality ({label} - {format_note})" if format_note else f"Video ({label})"
+                
+                variants.append({
+                    'quality': quality_name,
+                    'type': 'Video',
+                    'url': url_link
+                })
+
+            # ব্যাকআপ অরিজিনাল HD/SD ভিডিও
+            if not variants:
+                if info.get('url'):
                     variants.append({
-                        'quality': 'Audio Only (MP3)',
+                        'quality': 'HD/Original Quality',
+                        'type': 'Video',
+                        'url': info.get('url')
+                    })
+
+            unique_variants = list({v['quality']: v for v in variants}.values())
+
+            return jsonify({
+                'success': True,
+                'title': title,
+                'variants': unique_variants
+            })
+
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+# ২. অডিও ডাউনলোডার (সরাসরি সেরা অডিও/MP3 ট্র্যাক বের করবে)
+@app.route('/download-audio', methods=['POST'])
+def download_audio():
+    data = request.get_json()
+    url = data.get('url') if data else None
+    
+    if not url:
+        return jsonify({'success': False, 'error': 'No URL provided'}), 400
+
+    try:
+        ydl_opts = {
+            'quiet': True,
+            'no_warnings': True,
+        }
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            info = ydl.extract_info(url, download=False)
+            title = info.get('title', 'InsightsWonders_Audio')
+            formats = info.get('formats', [])
+            
+            variants = []
+            
+            for f in formats:
+                url_link = f.get('url')
+                acodec = f.get('acodec')
+                vcodec = f.get('vcodec')
+                
+                if url_link and acodec != 'none' and vcodec == 'none':
+                    abr = f.get('abr')
+                    quality_name = f"High Quality Audio ({int(abr)}kbps)" if abr else "MP3 / Audio"
+                    variants.append({
+                        'quality': quality_name,
                         'type': 'Audio',
                         'url': url_link
                     })
-                
-                # ২. ভিডিও এবং অডিও দুটোই একসাথে আছে এমন ফরম্যাট (Combined Format)
-                elif vcodec != 'none' and acodec != 'none':
-                    label = f"{height}p" if height else "Video"
-                    quality_name = f"HD Video ({label})" if (height and height >= 720) else f"SD Video ({label})"
-                    variants.append({
-                        'quality': quality_name,
-                        'type': 'Video',
-                        'url': url_link
-                    })
 
-            # যদি কোনো ফিল্টারে Combined ফরম্যাট না পাওয়া যায়, তবে বেস্ট ব্যাকআপ ফরম্যাট ব্যবহার হবে
-            if not any(v['type'] == 'Video' for v in variants) and info.get('url'):
+            if not variants:
                 variants.append({
-                    'quality': 'Standard Quality (With Audio)',
-                    'type': 'Video',
+                    'quality': 'Standard MP3 Audio',
+                    'type': 'Audio',
                     'url': info.get('url')
                 })
 
@@ -76,7 +123,8 @@ def download():
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)}), 500
 
-# প্রক্সি ডাউনলোড রাউট
+
+# ফাইল ডাইরেক্ট ডাউনলোড করার প্রক্সি
 @app.route('/proxy-download', methods=['GET'])
 def proxy_download():
     media_url = request.args.get('url')
@@ -90,7 +138,7 @@ def proxy_download():
 
     def generate():
         req = urllib.request.Request(media_url, headers={
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Safari/537.36'
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
         })
         with urllib.request.urlopen(req) as res:
             while chunk := res.read(1024 * 1024):
