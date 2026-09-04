@@ -1,5 +1,4 @@
 import os
-import re
 import urllib.request
 import requests
 from bs4 import BeautifulSoup
@@ -18,7 +17,7 @@ def home():
   return jsonify({'status': 'API is running'}), 200
 
 
-# ১. ভিডিও ডাউনলোডার
+# ১. ভিডিও ডাউনলোডার (সংশোধিত অডিও লজিকসহ)
 @app.route('/download-video', methods=['POST'])
 def download_video():
   data = request.get_json()
@@ -44,17 +43,19 @@ def download_video():
         acodec = f.get('acodec')
         format_id = str(f.get('format_id', '')).lower()
 
+        # ভিডিও স্ট্রিম না থাকলে এড়িয়ে যাবে
         if not url_link or vcodec == 'none':
           continue
 
         height = f.get('height')
         res = f'{height}p' if height else ('HD' if 'hd' in format_id else 'SD')
 
-        audio_status = (
-            'With Audio'
-            if (acodec != 'none' and acodec is not None)
-            else 'Without Audio'
-        )
+        # অডিও স্টেটাস সঠিক উপায়ে নির্ণয়
+        if acodec != 'none' and acodec is not None:
+          audio_status = 'With Audio'
+        else:
+          audio_status = 'Without Audio'
+
         quality_name = f'Video ({res}) - {audio_status}'
 
         variants.append(
@@ -69,7 +70,8 @@ def download_video():
         })
 
       unique_variants = list({v['quality']: v for v in variants}.values())
-      return jsonify({'success': True, 'title': title, 'variants': unique_variants})
+      return jsonify
+      ({'success': True, 'title': title, 'variants': unique_variants})
 
   except Exception as e:
     return jsonify({'success': False, 'error': str(e)}), 500
@@ -119,13 +121,14 @@ def download_audio():
         })
 
       unique_variants = list({v['quality']: v for v in variants}.values())
-      return jsonify({'success': True, 'title': title, 'variants': unique_variants})
+      return jsonify
+      ({'success': True, 'title': title, 'variants': unique_variants})
 
   except Exception as e:
     return jsonify({'success': False, 'error': str(e)}), 500
 
 
-# ৩. ইমেজ ডাউনলোডার (photo?fbid এবং মোবাইল বাইপাসসহ)
+# ৩. ইমেজ ডাউনলোডার
 @app.route('/download-image', methods=['POST'])
 def download_image():
   data = request.get_json()
@@ -138,7 +141,6 @@ def download_image():
     images = []
     title = 'InsightsWonders_Image'
 
-    # ইউআরএল ট্রান্সফর্মেশন (Mobile/mbasic Endpoints দিয়ে সহজে ডাটা ফেচ হয়)
     fetch_url = raw_url.replace('www.facebook.com', 'mbasic.facebook.com')
 
     headers = {
@@ -149,13 +151,11 @@ def download_image():
         'Accept-Language': 'en-US,en;q=0.9',
     }
 
-    # ১. স্ক্র্যাপিং চেষ্টা
     try:
       response = requests.get(fetch_url, headers=headers, timeout=10)
       if response.status_code == 200:
         soup = BeautifulSoup(response.text, 'html.parser')
 
-        # OpenGraph মেটা ট্যাগ দেখা
         og_images = soup.find_all('meta', property='og:image')
         for idx, img in enumerate(og_images):
           img_src = img.get('content')
@@ -166,7 +166,6 @@ def download_image():
                 'url': img_src,
             })
 
-        # mbasic ফেসবুক পেজের সরাসরি <img> ট্যাগ খোঁজা
         if not images:
           for idx, img in enumerate(soup.find_all('img')):
             src = img.get('src')
@@ -179,7 +178,6 @@ def download_image():
     except Exception:
       pass
 
-    # ২. yt-dlp চেষ্টা (যদি স্ক্র্যাপিং ফেল করে)
     if not images:
       ydl_opts = {
           'quiet': True,
