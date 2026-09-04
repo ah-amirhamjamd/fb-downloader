@@ -200,7 +200,7 @@ def download_image():
 #              YOUTUBE ROUTES
 # ==========================================
 
-# ইউটিউব ভিডিও ডাউনলোডার (FIXED)
+# ইউটিউব ভিডিও ডাউনলোডার
 @app.route('/download-youtube-video', methods=['POST'])
 def download_youtube_video():
     data = request.get_json()
@@ -214,10 +214,11 @@ def download_youtube_video():
             'quiet': True,
             'no_warnings': True,
             'noplaylist': True,
-            'extract_flat': False,
+            'format': 'best', # যেকোনো এভেলেবল সেরা স্ট্রিম আনবে
+            'check_formats': False,
             'extractor_args': {
                 'youtube': {
-                    'player_client': ['android', 'ios', 'web_creator']
+                    'player_client': ['android', 'web']
                 }
             }
         }
@@ -254,6 +255,7 @@ def download_youtube_video():
                         'url': url_link
                     })
 
+            # যদি ফিল্টার কাজ না করে ডাইরেক্ট ইউটিউব এর প্রাইমারি স্ট্রিম লিংক বসিয়ে দেবে
             if not variants and info.get('url'):
                 variants.append({
                     'quality': 'Standard Quality Video',
@@ -264,7 +266,7 @@ def download_youtube_video():
             unique_variants = list({v['quality']: v for v in variants}.values())
 
             if not unique_variants:
-                return jsonify({'success': False, 'error': 'No video streams available for this link.'}), 400
+                return jsonify({'success': False, 'error': 'No video streams available.'}), 400
 
             return jsonify({'success': True, 'title': title, 'variants': unique_variants})
 
@@ -272,7 +274,7 @@ def download_youtube_video():
         return jsonify({'success': False, 'error': f"Failed to process YouTube video: {str(e)}"}), 500
 
 
-# ইউটিউব অডিও ডাউনলোডার (FIXED)
+# ইউটিউব অডিও ডাউনলোডার
 @app.route('/download-youtube-audio', methods=['POST'])
 def download_youtube_audio():
     data = request.get_json()
@@ -286,10 +288,11 @@ def download_youtube_audio():
             'quiet': True,
             'no_warnings': True,
             'noplaylist': True,
-            'extract_flat': False,
+            'format': 'bestaudio/best', # যেকোনো এভেলেবল অডিও আনবে
+            'check_formats': False,
             'extractor_args': {
                 'youtube': {
-                    'player_client': ['android', 'ios', 'web_creator']
+                    'player_client': ['android', 'web']
                 }
             }
         }
@@ -333,7 +336,7 @@ def download_youtube_audio():
             unique_variants = list({v['quality']: v for v in variants}.values())
 
             if not unique_variants:
-                return jsonify({'success': False, 'error': 'No audio streams available for this link.'}), 400
+                return jsonify({'success': False, 'error': 'No audio streams available.'}), 400
 
             return jsonify({'success': True, 'title': title, 'variants': unique_variants})
 
