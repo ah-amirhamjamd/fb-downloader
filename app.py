@@ -2,6 +2,8 @@ from flask import Flask, request, jsonify, Response
 from flask_cors import CORS
 import yt_dlp
 import urllib.request
+import requests
+from bs4 import BeautifulSoup
 
 app = Flask(__name__)
 CORS(app)
@@ -114,7 +116,7 @@ def download_audio():
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)}), 500
 
-# ৩. ইমেজ ডাউনলোডার (সিঙ্গেল ও মাল্টিপল / ক্যারোজেল সাপোর্ট)
+# ৩. ইমেজ ডাউনলোডার (সংশোধিত ও কুকিজ এরর বাইপাস লজিক)
 @app.route('/download-image', methods=['POST'])
 def download_image():
     data = request.get_json()
@@ -124,51 +126,78 @@ def download_image():
         return jsonify({'success': False, 'error': 'No URL provided'}), 400
 
     try:
-        ydl_opts = {'quiet': True, 'no_warnings': True}
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            info = ydl.extract_info(url, download=False)
-            title = info.get('title', 'InsightsWonders_Image')
+        images = []
+        title = "InsightsWonders_Image"
+
+        # ১. OpenGraph মেটা ট্যাগ স্ক্র্যাপিং (কুকিজ ও রেজিস্টার্ড ইউজার এরর এড়াতে)
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'Accept-Language': 'en-US,en;q=0.9'
+        }
+        
+        response = requests.get(url, headers=headers, timeout=10)
+        
+        if response.status_code == 200:
+            soup = BeautifulSoup(response.text, 'html.parser')
             
-            images = []
-            
-            # ১. মাল্টিপল ইমেজের ক্ষেত্রে (Instagram Carousel / FB Album)
-            if 'entries' in info:
-                for idx, entry in enumerate(info['entries']):
-                    img_url = entry.get('url') or entry.get('thumbnail')
+            # og:image দিয়ে ছবির লিঙ্ক বের করা
+            og_images = soup.find_all('meta', property='og:image')
+            for idx, img in enumerate(og_images):
+                img_src = img.get('content')
+                if img_src:
+                    images.append({
+                        'quality': f"Photo {idx + 1} (HD Quality)",
+                        'type': 'Image',
+                        'url': img_src
+                    })
+
+        # ২. স্ক্র্যাপিংয়ে না পাওয়া গেলে ব্যাকআপ হিসেবে yt-dlp কাজ করবে
+        if not images:
+            ydl_opts = {
+                'quiet': True, 
+                'no_warnings': True,
+                'user_agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+            }
+            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                info = ydl.extract_info(url, download=False)
+                title = info.get('title', 'InsightsWonders_Image')
+                
+                # ক্যারোজেল / অ্যালবাম ইমেজের ক্ষেত্রে
+                if 'entries' in info:
+                    for idx, entry in enumerate(info['entries']):
+                        img_url = entry.get('url') or entry.get('thumbnail')
+                        if img_url:
+                            images.append({
+                                'quality': f"Photo {idx + 1} (HD Quality)",
+                                'type': 'Image',
+                                'url': img_url
+                            })
+                
+                # সিঙ্গেল ইমেজের ক্ষেত্রে
+                if not images:
+                    img_url = info.get('url') or info.get('thumbnail')
+                    thumbnails = info.get('thumbnails', [])
+                    if thumbnails:
+                        img_url = thumbnails[-1].get('url')
+                    
                     if img_url:
                         images.append({
-                            'quality': f"Image {idx + 1} (HD)",
+                            'quality': 'Full HD Photo',
                             'type': 'Image',
                             'url': img_url
                         })
-            
-            # ২. সিঙ্গেল ইমেজের ক্ষেত্রে
-            if not images:
-                img_url = info.get('url') or info.get('thumbnail')
-                
-                # অন্যান্য থাম্বনেইল ভার্সন থাকলে
-                thumbnails = info.get('thumbnails', [])
-                if thumbnails:
-                    best_thumb = thumbnails[-1].get('url')
-                    if best_thumb:
-                        img_url = best_thumb
-                
-                if img_url:
-                    images.append({
-                        'quality': 'Full HD Photo',
-                        'type': 'Image',
-                        'url': img_url
-                    })
 
-            if not images:
-                return jsonify({'success': False, 'error': 'No image found at this URL'}), 404
+        if not images:
+            return jsonify({'success': False, 'error': 'Private post or unable to fetch image. Make sure the post is public.'}), 400
 
-            return jsonify({'success': True, 'title': title, 'variants': images})
+        # ডুপ্লিকেট ইউআরএল ফিল্টার
+        unique_images = list({v['url']: v for v in images}.values())
+        return jsonify({'success': True, 'title': title, 'variants': unique_images})
 
     except Exception as e:
-        return jsonify({'success': False, 'error': str(e)}), 500
+        return jsonify({'success': False, 'error': 'Failed to process image. Please try a public link.'}), 500
 
-# ৪. প্রক্সি ডাউনলোড রাউট (ইমেজ, ভিডিও ও অডিও সবার জন্য)
+# ৪. প্রক্সি ডাউনলোড রাউট
 @app.route('/proxy-download', methods=['GET'])
 def proxy_download():
     media_url = request.args.get('url')
@@ -177,7 +206,6 @@ def proxy_download():
     if not media_url:
         return "No URL provided", 400
 
-    # ফাইল টাইপ অনুযায়ী এক্সটেনশন নির্বাচন
     if file_type == 'Audio':
         ext = 'mp3'
     elif file_type == 'Image':
