@@ -194,10 +194,10 @@ def download_image():
 
 
 # ==========================================
-#              YOUTUBE ROUTES
+#              YOUTUBE ROUTES (FIXED)
 # ==========================================
 
-# ৫. ইউটিউব ভিডিও ডাউনলোডার (Fix 403 Forbidden)
+# ৫. ইউটিউব ভিডিও ডাউনলোডার (Bypass 403)
 @app.route('/download-youtube-video', methods=['POST'])
 def download_youtube_video():
     data = request.get_json()
@@ -210,10 +210,11 @@ def download_youtube_video():
         ydl_opts = {
             'quiet': True, 
             'no_warnings': True,
-            'user_agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'user_agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 16_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.6 Mobile/15E148 Safari/604.1',
             'extractor_args': {
                 'youtube': {
-                    'player_client': ['android', 'web']
+                    'player_client': ['ios', 'mweb', 'tv_embedded'],
+                    'skip': ['hls', 'dash']
                 }
             }
         }
@@ -244,6 +245,7 @@ def download_youtube_video():
                         'url': url_link
                     })
 
+            # রেজুলেশন অনুযায়ী ডুপ্লিকেট সরানো
             unique_variants = list({v['quality']: v for v in variants}.values())
             
             if not unique_variants:
@@ -255,7 +257,7 @@ def download_youtube_video():
         return jsonify({'success': False, 'error': f"Failed to process YouTube video: {str(e)}"}), 500
 
 
-# ৬. ইউটিউব অডিও/MP3 ডাউনলোডার (Fix 403 Forbidden)
+# ৬. ইউটিউব অডিও/MP3 ডাউনলোডার (Bypass 403)
 @app.route('/download-youtube-audio', methods=['POST'])
 def download_youtube_audio():
     data = request.get_json()
@@ -268,10 +270,10 @@ def download_youtube_audio():
         ydl_opts = {
             'quiet': True, 
             'no_warnings': True,
-            'user_agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'user_agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 16_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.6 Mobile/15E148 Safari/604.1',
             'extractor_args': {
                 'youtube': {
-                    'player_client': ['android', 'web']
+                    'player_client': ['ios', 'mweb', 'tv_embedded']
                 }
             }
         }
