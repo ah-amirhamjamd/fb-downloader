@@ -12,6 +12,7 @@ CORS(app)
 # কুকিজ ফাইলের পাথ নির্ধারণ
 COOKIE_FILE = os.path.join(os.path.dirname(__file__), 'fb_cookies.txt')
 
+
 @app.route('/', methods=['GET'])
 def home():
   return jsonify({'status': 'API is running'}), 200
@@ -137,32 +138,60 @@ def download_audio():
     return jsonify({'success': False, 'error': str(e)}), 500
 
 
-# ৩. ইমেজ ডাউনলোডার (কুকিজ সাপোর্টসহ)
+# ৩. ইমেজ ডাউনলোডার (সংশোধিত ও পার্মালিংক ৪০৪ এরর হ্যান্ডলারসহ)
 @app.route('/download-image', methods=['POST'])
 def download_image():
   data = request.get_json()
-  url = data.get('url') if data else None
+  raw_url = data.get('url') if data else None
 
-  if not url:
+  if not raw_url:
     return jsonify({'success': False, 'error': 'No URL provided'}), 400
+
+  # URL Clean-up: permalink বা ট্র্যাকিং প্যারামিটার ফিল্টার করা
+  url = raw_url.split('&')[0] if 'permalink.php' in raw_url else raw_url
 
   try:
     images = []
     title = 'InsightsWonders_Image'
 
-    # ১. yt-dlp দিয়ে কুকিজ ব্যবহার করে ইমেজ এক্সট্র্যাক্ট করা
-    ydl_opts = {
-        'quiet': True,
-        'no_warnings': True,
-        'user_agent': (
+    # ১. OpenGraph ওয়েব স্ক্র্যাপিং
+    headers = {
+        'User-Agent': (
             'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+            ' (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
         ),
+        'Accept-Language': 'en-US,en;q=0.9',
     }
 
-    if os.path.exists(COOKIE_FILE):
-      ydl_opts['cookiefile'] = COOKIE_FILE
-
     try:
+      response = requests.get(url, headers=headers, timeout=10)
+      if response.status_code == 200:
+        soup = BeautifulSoup(response.text, 'html.parser')
+        og_images = soup.find_all('meta', property='og:image')
+        for idx, img in enumerate(og_images):
+          img_src = img.get('content')
+          if img_src:
+            images.append({
+                'quality': f'Photo {idx + 1} (HD Quality)',
+                'type': 'Image',
+                'url': img_src,
+            })
+    except Exception:
+      pass
+
+    # ২. yt-dlp দিয়ে চেষ্টা করা (কুকিজ সাপোর্টসহ)
+    if not images:
+      ydl_opts = {
+          'quiet': True,
+          'no_warnings': True,
+          'user_agent': (
+              'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+          ),
+      }
+
+      if os.path.exists(COOKIE_FILE):
+        ydl_opts['cookiefile'] = COOKIE_FILE
+
       with yt_dlp.YoutubeDL(ydl_opts) as ydl:
         info = ydl.extract_info(url, download=False)
         title = info.get('title', 'InsightsWonders_Image')
@@ -187,39 +216,14 @@ def download_image():
             images.append(
                 {'quality': 'Full HD Photo', 'type': 'Image', 'url': img_url}
             )
-    except Exception:
-      pass
-
-    # ২. ব্যাকআপ হিসেবে ওয়েব স্ক্র্যাপিং
-    if not images:
-      headers = {
-          'User-Agent': (
-              'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
-              ' (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
-          ),
-          'Accept-Language': 'en-US,en;q=0.9',
-      }
-      response = requests.get(url, headers=headers, timeout=10)
-
-      if response.status_code == 200:
-        soup = BeautifulSoup(response.text, 'html.parser')
-        og_images = soup.find_all('meta', property='og:image')
-        for idx, img in enumerate(og_images):
-          img_src = img.get('content')
-          if img_src:
-            images.append({
-                'quality': f'Photo {idx + 1} (HD Quality)',
-                'type': 'Image',
-                'url': img_src,
-            })
 
     if not images:
       return (
           jsonify({
               'success': False,
               'error': (
-                  'Private post or unable to fetch image. Please check the'
-                  ' link.'
+                  'Invalid link or photo not found. Try copying the link'
+                  ' directly from the Facebook photo.'
               ),
           }),
           400,
@@ -229,7 +233,13 @@ def download_image():
     return jsonify({'success': True, 'title': title, 'variants': unique_images})
 
   except Exception as e:
-    return jsonify({'success': False, 'error': str(e)}), 500
+    return (
+        jsonify({
+            'success': False,
+            'error': 'Failed to process image. Ensure the link is correct.',
+        }),
+        500,
+    )
 
 
 # ৪. প্রক্সি ডাউনলোড রাউট
