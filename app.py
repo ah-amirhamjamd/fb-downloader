@@ -200,7 +200,7 @@ def download_image():
 #              YOUTUBE ROUTES
 # ==========================================
 
-# ইউটিউব ভিডিও ডাউনলোডার
+# ইউটিউব ভিডিও ডাউনলোডার (FIXED FORMAT & PLAYLIST BUG)
 @app.route('/download-youtube-video', methods=['POST'])
 def download_youtube_video():
     data = request.get_json()
@@ -213,15 +213,20 @@ def download_youtube_video():
         ydl_opts = {
             'quiet': True, 
             'no_warnings': True,
+            'noplaylist': True,  # প্লেলিস্ট ব্লক করে শুধু সিঙ্গেল ভিডিও নেবে
             'user_agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
         }
         
-        # ইউটিউব কুকি ফাইল থাকলে লোড করবে
         if os.path.exists(YT_COOKIE_FILE):
             ydl_opts['cookiefile'] = YT_COOKIE_FILE
 
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             info = ydl.extract_info(url, download=False)
+            
+            # যদি এন্ট্রি সহ প্লেলিস্টের তথ্য আসে, প্রথম ভিডিওকে নেবে
+            if 'entries' in info and len(info['entries']) > 0:
+                info = info['entries'][0]
+
             title = info.get('title', 'YouTube_Video')
             formats = info.get('formats', [])
 
@@ -232,9 +237,9 @@ def download_youtube_video():
                 acodec = f.get('acodec')
                 height = f.get('height')
 
-                if url_link and vcodec != 'none':
+                if url_link and vcodec and vcodec != 'none':
                     res = f"{height}p" if height else "SD"
-                    quality_name = f"Video ({res}) - With Audio" if (acodec != 'none' and acodec is not None) else f"Video ({res}) - Without Audio"
+                    quality_name = f"Video ({res}) - With Audio" if (acodec and acodec != 'none') else f"Video ({res}) - Without Audio"
 
                     variants.append({
                         'quality': quality_name,
@@ -242,10 +247,18 @@ def download_youtube_video():
                         'url': url_link
                     })
 
+            # যদি ফিল্টারিং এ সমস্যা হয় তবে ডিফল্ট ডিরেক্ট লিঙ্ক ব্যাকে দিয়ে সেভ করবে
+            if not variants and info.get('url'):
+                variants.append({
+                    'quality': 'Standard Video Quality',
+                    'type': 'Video',
+                    'url': info.get('url')
+                })
+
             unique_variants = list({v['quality']: v for v in variants}.values())
             
             if not unique_variants:
-                return jsonify({'success': False, 'error': 'No video streams found.'}), 400
+                return jsonify({'success': False, 'error': 'No video streams available for this video.'}), 400
 
             return jsonify({'success': True, 'title': title, 'variants': unique_variants})
 
@@ -253,7 +266,7 @@ def download_youtube_video():
         return jsonify({'success': False, 'error': f"Failed to process YouTube video: {str(e)}"}), 500
 
 
-# ইউটিউব অডিও ডাউনলোডার
+# ইউটিউব অডিও ডাউনলোডার (FIXED FORMAT & PLAYLIST BUG)
 @app.route('/download-youtube-audio', methods=['POST'])
 def download_youtube_audio():
     data = request.get_json()
@@ -266,6 +279,7 @@ def download_youtube_audio():
         ydl_opts = {
             'quiet': True, 
             'no_warnings': True,
+            'noplaylist': True,  # প্লেলিস্ট ব্লক করে শুধু সিঙ্গেল ভিডিও নেবে
             'user_agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
         }
 
@@ -274,6 +288,10 @@ def download_youtube_audio():
 
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             info = ydl.extract_info(url, download=False)
+            
+            if 'entries' in info and len(info['entries']) > 0:
+                info = info['entries'][0]
+
             title = info.get('title', 'YouTube_Audio')
             formats = info.get('formats', [])
 
@@ -283,7 +301,7 @@ def download_youtube_audio():
                 acodec = f.get('acodec')
                 vcodec = f.get('vcodec')
 
-                if url_link and acodec != 'none' and vcodec == 'none':
+                if url_link and acodec and acodec != 'none' and (not vcodec or vcodec == 'none'):
                     abr = f.get('abr')
                     quality_name = f"Audio MP3 ({int(abr)}kbps)" if abr else "High Quality MP3"
                     variants.append({
