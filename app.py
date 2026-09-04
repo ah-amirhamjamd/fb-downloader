@@ -11,12 +11,17 @@ CORS(app)
 
 COOKIE_FILE = os.path.join(os.path.dirname(__file__), 'fb_cookies.txt')
 
-# ১. হোম / হেলথ চেক রুট (UptimeRobot এর HEAD ও GET উভয় রিকোয়েস্ট গ্রহণ করবে)
+# ১. হোম / হেলথ চেক রুট (UptimeRobot এর জন্য)
 @app.route('/', methods=['GET', 'HEAD'])
 def home():
     return jsonify({'status': 'API is running'}), 200
 
-# ২. ভিডিও ডাউনলোডার
+
+# ==========================================
+#              FACEBOOK ROUTES
+# ==========================================
+
+# ফেসবুক ভিডিও ডাউনলোডার
 @app.route('/download-video', methods=['POST'])
 def download_video():
     data = request.get_json()
@@ -26,23 +31,16 @@ def download_video():
         return jsonify({'success': False, 'error': 'No URL provided'}), 400
 
     try:
-        ydl_opts = {
-            'quiet': True, 
-            'no_warnings': True,
-            'extract_flat': False
-        }
-        
+        ydl_opts = {'quiet': True, 'no_warnings': True, 'extract_flat': False}
         if os.path.exists(COOKIE_FILE):
             ydl_opts['cookiefile'] = COOKIE_FILE
 
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             info = ydl.extract_info(url, download=False)
-            title = info.get('title', 'InsightsWonders_Video')
+            title = info.get('title', 'InsightsWonders_FB_Video')
             formats = info.get('formats', [])
 
             variants = []
-            
-            # মূল কম্বাইন্ড ভিডিও স্ট্রিম
             if info.get('url'):
                 variants.append({
                     'quality': 'Standard Quality (With Audio)',
@@ -62,7 +60,6 @@ def download_video():
                 height = f.get('height')
                 res = f"{height}p" if height else ("HD" if "hd" in format_id or "hd" in url_link else "SD")
 
-                # অডিও স্ট্যাটাস চেক
                 if acodec != 'none' and acodec is not None:
                     quality_name = f"Video ({res}) - With Audio"
                 elif "hd" in format_id or "sd" in format_id:
@@ -77,7 +74,6 @@ def download_video():
                 })
 
             unique_variants = list({v['quality']: v for v in variants}.values())
-            
             if not unique_variants:
                 return jsonify({'success': False, 'error': 'No video streams found'}), 400
 
@@ -87,7 +83,7 @@ def download_video():
         return jsonify({'success': False, 'error': f"Failed to process video: {str(e)}"}), 500
 
 
-# ৩. অডিও ডাউনলোডার
+# ফেসবুক অডিও ডাউনলোডার
 @app.route('/download-audio', methods=['POST'])
 def download_audio():
     data = request.get_json()
@@ -103,7 +99,7 @@ def download_audio():
 
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             info = ydl.extract_info(url, download=False)
-            title = info.get('title', 'InsightsWonders_Audio')
+            title = info.get('title', 'InsightsWonders_FB_Audio')
             formats = info.get('formats', [])
 
             variants = []
@@ -127,7 +123,7 @@ def download_audio():
         return jsonify({'success': False, 'error': str(e)}), 500
 
 
-# ৪. ইমেজ ডাউনলোডার
+# ফেসবুক ইমেজ ডাউনলোডার
 @app.route('/download-image', methods=['POST'])
 def download_image():
     data = request.get_json()
@@ -150,35 +146,22 @@ def download_image():
             response = requests.get(fetch_url, headers=headers, timeout=10)
             if response.status_code == 200:
                 soup = BeautifulSoup(response.text, 'html.parser')
-
                 og_images = soup.find_all('meta', property='og:image')
                 for idx, img in enumerate(og_images):
                     img_src = img.get('content')
                     if img_src:
-                        images.append({
-                            'quality': f"Photo {idx + 1} (HD Quality)",
-                            'type': 'Image',
-                            'url': img_src
-                        })
+                        images.append({'quality': f"Photo {idx + 1} (HD Quality)", 'type': 'Image', 'url': img_src})
 
                 if not images:
                     for idx, img in enumerate(soup.find_all('img')):
                         src = img.get('src')
                         if src and ('scontent' in src or 'fbcdn' in src):
-                            images.append({
-                                'quality': f"Photo {idx + 1} (HD Quality)",
-                                'type': 'Image',
-                                'url': src
-                            })
+                            images.append({'quality': f"Photo {idx + 1} (HD Quality)", 'type': 'Image', 'url': src})
         except Exception:
             pass
 
         if not images:
-            ydl_opts = {
-                'quiet': True, 
-                'no_warnings': True,
-                'user_agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
-            }
+            ydl_opts = {'quiet': True, 'no_warnings': True}
             if os.path.exists(COOKIE_FILE):
                 ydl_opts['cookiefile'] = COOKIE_FILE
 
@@ -190,18 +173,13 @@ def download_image():
                     for idx, entry in enumerate(info['entries']):
                         img_url = entry.get('url') or entry.get('thumbnail')
                         if img_url:
-                            images.append({
-                                'quality': f"Photo {idx + 1} (HD Quality)",
-                                'type': 'Image',
-                                'url': img_url
-                            })
+                            images.append({'quality': f"Photo {idx + 1} (HD Quality)", 'type': 'Image', 'url': img_url})
 
                 if not images:
                     img_url = info.get('url') or info.get('thumbnail')
                     thumbnails = info.get('thumbnails', [])
                     if thumbnails:
                         img_url = thumbnails[-1].get('url')
-                    
                     if img_url:
                         images.append({'quality': 'Full HD Photo', 'type': 'Image', 'url': img_url})
 
@@ -215,7 +193,111 @@ def download_image():
         return jsonify({'success': False, 'error': 'Failed to process image.'}), 500
 
 
-# ৫. প্রক্সি ডাউনলোড রাউট
+# ==========================================
+#              YOUTUBE ROUTES
+# ==========================================
+
+# ৫. ইউটিউব ভিডিও ডাউনলোডার
+@app.route('/download-youtube-video', methods=['POST'])
+def download_youtube_video():
+    data = request.get_json()
+    url = data.get('url') if data else None
+
+    if not url:
+        return jsonify({'success': False, 'error': 'No URL provided'}), 400
+
+    try:
+        ydl_opts = {'quiet': True, 'no_warnings': True}
+
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            info = ydl.extract_info(url, download=False)
+            title = info.get('title', 'YouTube_Video')
+            formats = info.get('formats', [])
+
+            variants = []
+            for f in formats:
+                url_link = f.get('url')
+                vcodec = f.get('vcodec')
+                acodec = f.get('acodec')
+                height = f.get('height')
+
+                if url_link and vcodec != 'none':
+                    res = f"{height}p" if height else "SD"
+                    
+                    if acodec != 'none' and acodec is not None:
+                        quality_name = f"Video ({res}) - With Audio"
+                    else:
+                        quality_name = f"Video ({res}) - Without Audio"
+
+                    variants.append({
+                        'quality': quality_name,
+                        'type': 'Video',
+                        'url': url_link
+                    })
+
+            # অডিওসহ রেজুলেশনগুলো আগে ফিল্টার করা
+            unique_variants = list({v['quality']: v for v in variants}.values())
+            
+            if not unique_variants:
+                return jsonify({'success': False, 'error': 'No video streams found.'}), 400
+
+            return jsonify({'success': True, 'title': title, 'variants': unique_variants})
+
+    except Exception as e:
+        return jsonify({'success': False, 'error': f"Failed to process YouTube video: {str(e)}"}), 500
+
+
+# ৬. ইউটিউব অডিও/MP3 ডাউনলোডার
+@app.route('/download-youtube-audio', methods=['POST'])
+def download_youtube_audio():
+    data = request.get_json()
+    url = data.get('url') if data else None
+
+    if not url:
+        return jsonify({'success': False, 'error': 'No URL provided'}), 400
+
+    try:
+        ydl_opts = {'quiet': True, 'no_warnings': True}
+
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            info = ydl.extract_info(url, download=False)
+            title = info.get('title', 'YouTube_Audio')
+            formats = info.get('formats', [])
+
+            variants = []
+            for f in formats:
+                url_link = f.get('url')
+                acodec = f.get('acodec')
+                vcodec = f.get('vcodec')
+
+                if url_link and acodec != 'none' and vcodec == 'none':
+                    abr = f.get('abr')
+                    quality_name = f"Audio MP3 ({int(abr)}kbps)" if abr else "High Quality MP3"
+                    variants.append({
+                        'quality': quality_name,
+                        'type': 'Audio',
+                        'url': url_link
+                    })
+
+            unique_variants = list({v['quality']: v for v in variants}.values())
+            
+            if not unique_variants and info.get('url'):
+                unique_variants.append({
+                    'quality': 'Standard Quality MP3',
+                    'type': 'Audio',
+                    'url': info.get('url')
+                })
+
+            return jsonify({'success': True, 'title': title, 'variants': unique_variants})
+
+    except Exception as e:
+        return jsonify({'success': False, 'error': f"Failed to process YouTube audio: {str(e)}"}), 500
+
+
+# ==========================================
+#              PROXY DOWNLOAD
+# ==========================================
+
 @app.route('/proxy-download', methods=['GET'])
 def proxy_download():
     media_url = request.args.get('url')
