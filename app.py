@@ -9,9 +9,12 @@ import yt_dlp
 app = Flask(__name__)
 CORS(app)
 
-COOKIE_FILE = os.path.join(os.path.dirname(__file__), 'fb_cookies.txt')
+# কুকি ফাইলের পাথ
+FB_COOKIE_FILE = os.path.join(os.path.dirname(__file__), 'fb_cookies.txt')
+YT_COOKIE_FILE = os.path.join(os.path.dirname(__file__), 'yt_cookies.txt')
 
-# ১. হোম / হেলথ চেক রুট (UptimeRobot এর জন্য)
+
+# ১. হেলথ চেক ও UptimeRobot রুট
 @app.route('/', methods=['GET', 'HEAD'])
 def home():
     return jsonify({'status': 'API is running'}), 200
@@ -32,8 +35,8 @@ def download_video():
 
     try:
         ydl_opts = {'quiet': True, 'no_warnings': True, 'extract_flat': False}
-        if os.path.exists(COOKIE_FILE):
-            ydl_opts['cookiefile'] = COOKIE_FILE
+        if os.path.exists(FB_COOKIE_FILE):
+            ydl_opts['cookiefile'] = FB_COOKIE_FILE
 
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             info = ydl.extract_info(url, download=False)
@@ -94,8 +97,8 @@ def download_audio():
 
     try:
         ydl_opts = {'quiet': True, 'no_warnings': True}
-        if os.path.exists(COOKIE_FILE):
-            ydl_opts['cookiefile'] = COOKIE_FILE
+        if os.path.exists(FB_COOKIE_FILE):
+            ydl_opts['cookiefile'] = FB_COOKIE_FILE
 
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             info = ydl.extract_info(url, download=False)
@@ -162,8 +165,8 @@ def download_image():
 
         if not images:
             ydl_opts = {'quiet': True, 'no_warnings': True}
-            if os.path.exists(COOKIE_FILE):
-                ydl_opts['cookiefile'] = COOKIE_FILE
+            if os.path.exists(FB_COOKIE_FILE):
+                ydl_opts['cookiefile'] = FB_COOKIE_FILE
 
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                 info = ydl.extract_info(raw_url, download=False)
@@ -194,10 +197,10 @@ def download_image():
 
 
 # ==========================================
-#              YOUTUBE ROUTES (FIXED)
+#              YOUTUBE ROUTES
 # ==========================================
 
-# ৫. ইউটিউব ভিডিও ডাউনলোডার (Bypass 403)
+# ইউটিউব ভিডিও ডাউনলোডার
 @app.route('/download-youtube-video', methods=['POST'])
 def download_youtube_video():
     data = request.get_json()
@@ -210,14 +213,12 @@ def download_youtube_video():
         ydl_opts = {
             'quiet': True, 
             'no_warnings': True,
-            'user_agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 16_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.6 Mobile/15E148 Safari/604.1',
-            'extractor_args': {
-                'youtube': {
-                    'player_client': ['ios', 'mweb', 'tv_embedded'],
-                    'skip': ['hls', 'dash']
-                }
-            }
+            'user_agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
         }
+        
+        # ইউটিউব কুকি ফাইল থাকলে লোড করবে
+        if os.path.exists(YT_COOKIE_FILE):
+            ydl_opts['cookiefile'] = YT_COOKIE_FILE
 
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             info = ydl.extract_info(url, download=False)
@@ -233,11 +234,7 @@ def download_youtube_video():
 
                 if url_link and vcodec != 'none':
                     res = f"{height}p" if height else "SD"
-                    
-                    if acodec != 'none' and acodec is not None:
-                        quality_name = f"Video ({res}) - With Audio"
-                    else:
-                        quality_name = f"Video ({res}) - Without Audio"
+                    quality_name = f"Video ({res}) - With Audio" if (acodec != 'none' and acodec is not None) else f"Video ({res}) - Without Audio"
 
                     variants.append({
                         'quality': quality_name,
@@ -245,7 +242,6 @@ def download_youtube_video():
                         'url': url_link
                     })
 
-            # রেজুলেশন অনুযায়ী ডুপ্লিকেট সরানো
             unique_variants = list({v['quality']: v for v in variants}.values())
             
             if not unique_variants:
@@ -257,7 +253,7 @@ def download_youtube_video():
         return jsonify({'success': False, 'error': f"Failed to process YouTube video: {str(e)}"}), 500
 
 
-# ৬. ইউটিউব অডিও/MP3 ডাউনলোডার (Bypass 403)
+# ইউটিউব অডিও ডাউনলোডার
 @app.route('/download-youtube-audio', methods=['POST'])
 def download_youtube_audio():
     data = request.get_json()
@@ -270,13 +266,11 @@ def download_youtube_audio():
         ydl_opts = {
             'quiet': True, 
             'no_warnings': True,
-            'user_agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 16_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.6 Mobile/15E148 Safari/604.1',
-            'extractor_args': {
-                'youtube': {
-                    'player_client': ['ios', 'mweb', 'tv_embedded']
-                }
-            }
+            'user_agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
         }
+
+        if os.path.exists(YT_COOKIE_FILE):
+            ydl_opts['cookiefile'] = YT_COOKIE_FILE
 
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             info = ydl.extract_info(url, download=False)
@@ -311,3 +305,36 @@ def download_youtube_audio():
 
     except Exception as e:
         return jsonify({'success': False, 'error': f"Failed to process YouTube audio: {str(e)}"}), 500
+
+
+# ==========================================
+#              PROXY DOWNLOAD
+# ==========================================
+
+@app.route('/proxy-download', methods=['GET'])
+def proxy_download():
+    media_url = request.args.get('url')
+    file_type = request.args.get('type', 'Video')
+
+    if not media_url:
+        return 'No URL provided', 400
+
+    ext = 'mp3' if file_type == 'Audio' else ('jpg' if file_type == 'Image' else 'mp4')
+    filename = f"InsightsWonders_{file_type}_{int(request.args.get('t', 0))}.{ext}"
+
+    def generate():
+        req = urllib.request.Request(
+            media_url, 
+            headers={'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'}
+        )
+        with urllib.request.urlopen(req) as res:
+            while chunk := res.read(1024 * 1024):
+                yield chunk
+
+    response = Response(generate(), content_type='application/octet-stream')
+    response.headers['Content-Disposition'] = f'attachment; filename="{filename}"'
+    return response
+
+
+if __name__ == '__main__':
+    app.run(host='0.0.0.0', port=5000)
