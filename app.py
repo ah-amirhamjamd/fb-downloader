@@ -1,4 +1,5 @@
 import os
+import re
 import urllib.request
 import requests
 from bs4 import BeautifulSoup
@@ -9,7 +10,6 @@ import yt_dlp
 app = Flask(__name__)
 CORS(app)
 
-# কুকিজ ফাইলের পাথ নির্ধারণ
 COOKIE_FILE = os.path.join(os.path.dirname(__file__), 'fb_cookies.txt')
 
 
@@ -29,7 +29,6 @@ def download_video():
 
   try:
     ydl_opts = {'quiet': True, 'no_warnings': True}
-
     if os.path.exists(COOKIE_FILE):
       ydl_opts['cookiefile'] = COOKIE_FILE
 
@@ -51,20 +50,11 @@ def download_video():
         height = f.get('height')
         res = f'{height}p' if height else ('HD' if 'hd' in format_id else 'SD')
 
-        if acodec != 'none' and acodec is not None:
-          audio_status = 'With Audio'
-        elif (
-            'hd' in format_id
-            or 'sd' in format_id
-            or f.get('vcodec') != 'none'
-        ):
-          if acodec == 'none':
-            audio_status = 'Without Audio'
-          else:
-            audio_status = 'With Audio'
-        else:
-          audio_status = 'Without Audio'
-
+        audio_status = (
+            'With Audio'
+            if (acodec != 'none' and acodec is not None)
+            else 'Without Audio'
+        )
         quality_name = f'Video ({res}) - {audio_status}'
 
         variants.append(
@@ -79,8 +69,7 @@ def download_video():
         })
 
       unique_variants = list({v['quality']: v for v in variants}.values())
-      return jsonify
-      ({'success': True, 'title': title, 'variants': unique_variants})
+      return jsonify({'success': True, 'title': title, 'variants': unique_variants})
 
   except Exception as e:
     return jsonify({'success': False, 'error': str(e)}), 500
@@ -97,7 +86,6 @@ def download_audio():
 
   try:
     ydl_opts = {'quiet': True, 'no_warnings': True}
-
     if os.path.exists(COOKIE_FILE):
       ydl_opts['cookiefile'] = COOKIE_FILE
 
@@ -131,14 +119,13 @@ def download_audio():
         })
 
       unique_variants = list({v['quality']: v for v in variants}.values())
-      return jsonify
-      ({'success': True, 'title': title, 'variants': unique_variants})
+      return jsonify({'success': True, 'title': title, 'variants': unique_variants})
 
   except Exception as e:
     return jsonify({'success': False, 'error': str(e)}), 500
 
 
-# ৩. ইমেজ ডাউনলোডার (সংশোধিত ও পার্মালিংক ৪০৪ এরর হ্যান্ডলারসহ)
+# ৩. ইমেজ ডাউনলোডার (photo?fbid এবং মোবাইল বাইপাসসহ)
 @app.route('/download-image', methods=['POST'])
 def download_image():
   data = request.get_json()
@@ -147,14 +134,13 @@ def download_image():
   if not raw_url:
     return jsonify({'success': False, 'error': 'No URL provided'}), 400
 
-  # URL Clean-up: permalink বা ট্র্যাকিং প্যারামিটার ফিল্টার করা
-  url = raw_url.split('&')[0] if 'permalink.php' in raw_url else raw_url
-
   try:
     images = []
     title = 'InsightsWonders_Image'
 
-    # ১. OpenGraph ওয়েব স্ক্র্যাপিং
+    # ইউআরএল ট্রান্সফর্মেশন (Mobile/mbasic Endpoints দিয়ে সহজে ডাটা ফেচ হয়)
+    fetch_url = raw_url.replace('www.facebook.com', 'mbasic.facebook.com')
+
     headers = {
         'User-Agent': (
             'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
@@ -163,10 +149,13 @@ def download_image():
         'Accept-Language': 'en-US,en;q=0.9',
     }
 
+    # ১. স্ক্র্যাপিং চেষ্টা
     try:
-      response = requests.get(url, headers=headers, timeout=10)
+      response = requests.get(fetch_url, headers=headers, timeout=10)
       if response.status_code == 200:
         soup = BeautifulSoup(response.text, 'html.parser')
+
+        # OpenGraph মেটা ট্যাগ দেখা
         og_images = soup.find_all('meta', property='og:image')
         for idx, img in enumerate(og_images):
           img_src = img.get('content')
@@ -176,10 +165,21 @@ def download_image():
                 'type': 'Image',
                 'url': img_src,
             })
+
+        # mbasic ফেসবুক পেজের সরাসরি <img> ট্যাগ খোঁজা
+        if not images:
+          for idx, img in enumerate(soup.find_all('img')):
+            src = img.get('src')
+            if src and ('scontent' in src or 'fbcdn' in src):
+              images.append({
+                  'quality': f'Photo {idx + 1} (HD Quality)',
+                  'type': 'Image',
+                  'url': src,
+              })
     except Exception:
       pass
 
-    # ২. yt-dlp দিয়ে চেষ্টা করা (কুকিজ সাপোর্টসহ)
+    # ২. yt-dlp চেষ্টা (যদি স্ক্র্যাপিং ফেল করে)
     if not images:
       ydl_opts = {
           'quiet': True,
@@ -188,12 +188,11 @@ def download_image():
               'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
           ),
       }
-
       if os.path.exists(COOKIE_FILE):
         ydl_opts['cookiefile'] = COOKIE_FILE
 
       with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-        info = ydl.extract_info(url, download=False)
+        info = ydl.extract_info(raw_url, download=False)
         title = info.get('title', 'InsightsWonders_Image')
 
         if 'entries' in info:
@@ -222,8 +221,8 @@ def download_image():
           jsonify({
               'success': False,
               'error': (
-                  'Invalid link or photo not found. Try copying the link'
-                  ' directly from the Facebook photo.'
+                  'Unable to extract photo. Make sure the post is public or try'
+                  ' copying the direct photo link.'
               ),
           }),
           400,
@@ -236,7 +235,7 @@ def download_image():
     return (
         jsonify({
             'success': False,
-            'error': 'Failed to process image. Ensure the link is correct.',
+            'error': 'Failed to process image. Make sure the post is public.',
         }),
         500,
     )
