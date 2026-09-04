@@ -200,7 +200,7 @@ def download_image():
 #              YOUTUBE ROUTES
 # ==========================================
 
-# ইউটিউব ভিডিও ডাউনলোডার (FIXED FORMAT & PLAYLIST ISSUE)
+# ইউটিউব ভিডিও ডাউনলোডার (FIXED)
 @app.route('/download-youtube-video', methods=['POST'])
 def download_youtube_video():
     data = request.get_json()
@@ -211,20 +211,23 @@ def download_youtube_video():
 
     try:
         ydl_opts = {
-            'quiet': True, 
+            'quiet': True,
             'no_warnings': True,
             'noplaylist': True,
-            'format': 'bestvideo+bestaudio/best', # যেকোনো একটা ভিডিও ফরম্যাট হলেও নেবে
-            'ignoreerrors': True,
-            'user_agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+            'extract_flat': False,
+            'extractor_args': {
+                'youtube': {
+                    'player_client': ['android', 'ios', 'web_creator']
+                }
+            }
         }
-        
+
         if os.path.exists(YT_COOKIE_FILE):
             ydl_opts['cookiefile'] = YT_COOKIE_FILE
 
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             info = ydl.extract_info(url, download=False)
-            
+
             if not info:
                 return jsonify({'success': False, 'error': 'Could not fetch video info'}), 400
 
@@ -251,7 +254,6 @@ def download_youtube_video():
                         'url': url_link
                     })
 
-            # যদি ফিল্টার থেকে কিছু না আসে তবে ডাইরেক্ট ফার্স্ট লিংকে ফলব্যাক করবে
             if not variants and info.get('url'):
                 variants.append({
                     'quality': 'Standard Quality Video',
@@ -260,7 +262,7 @@ def download_youtube_video():
                 })
 
             unique_variants = list({v['quality']: v for v in variants}.values())
-            
+
             if not unique_variants:
                 return jsonify({'success': False, 'error': 'No video streams available for this link.'}), 400
 
@@ -270,7 +272,7 @@ def download_youtube_video():
         return jsonify({'success': False, 'error': f"Failed to process YouTube video: {str(e)}"}), 500
 
 
-# ইউটিউব অডিও ডাউনলোডার (FIXED FORMAT & PLAYLIST ISSUE)
+# ইউটিউব অডিও ডাউনলোডার (FIXED)
 @app.route('/download-youtube-audio', methods=['POST'])
 def download_youtube_audio():
     data = request.get_json()
@@ -281,12 +283,15 @@ def download_youtube_audio():
 
     try:
         ydl_opts = {
-            'quiet': True, 
+            'quiet': True,
             'no_warnings': True,
             'noplaylist': True,
-            'format': 'bestaudio/best', # যেকোনো একটা অডিও ফরম্যাট পেলেই নেবে
-            'ignoreerrors': True,
-            'user_agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+            'extract_flat': False,
+            'extractor_args': {
+                'youtube': {
+                    'player_client': ['android', 'ios', 'web_creator']
+                }
+            }
         }
 
         if os.path.exists(YT_COOKIE_FILE):
@@ -297,7 +302,7 @@ def download_youtube_audio():
 
             if not info:
                 return jsonify({'success': False, 'error': 'Could not fetch audio info'}), 400
-            
+
             if 'entries' in info and len(info['entries']) > 0:
                 info = info['entries'][0]
 
@@ -326,7 +331,7 @@ def download_youtube_audio():
                 })
 
             unique_variants = list({v['quality']: v for v in variants}.values())
-            
+
             if not unique_variants:
                 return jsonify({'success': False, 'error': 'No audio streams available for this link.'}), 400
 
