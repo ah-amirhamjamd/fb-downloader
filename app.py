@@ -10,7 +10,7 @@ CORS(app)
 def home():
     return jsonify({'status': 'API is running'}), 200
 
-# ১. ভিডিও ডাউনলোডার (অডিও শনাক্তকরণ লজিক ফিক্সড)
+# ১. ভিডিও ডাউনলোডার
 @app.route('/download-video', methods=['POST'])
 def download_video():
     data = request.get_json()
@@ -39,11 +39,9 @@ def download_video():
                 height = f.get('height')
                 res = f"{height}p" if height else ("HD" if "hd" in format_id else "SD")
                 
-                # অডিও স্ট্যাটাস সঠিকভাবে বের করার লজিক
                 if acodec != 'none' and acodec is not None:
                     audio_status = "With Audio"
                 elif "hd" in format_id or "sd" in format_id or f.get('vcodec') != 'none':
-                    # ফেসবুকের ডিফল্ট প্রগ্রেসিভ ভিডিওগুলোতে অডিও যুক্ত থাকে
                     if acodec == 'none':
                         audio_status = "Without Audio"
                     else:
@@ -116,7 +114,61 @@ def download_audio():
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)}), 500
 
-# প্রক্সি ডাউনলোড রাউট
+# ৩. ইমেজ ডাউনলোডার (সিঙ্গেল ও মাল্টিপল / ক্যারোজেল সাপোর্ট)
+@app.route('/download-image', methods=['POST'])
+def download_image():
+    data = request.get_json()
+    url = data.get('url') if data else None
+    
+    if not url:
+        return jsonify({'success': False, 'error': 'No URL provided'}), 400
+
+    try:
+        ydl_opts = {'quiet': True, 'no_warnings': True}
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            info = ydl.extract_info(url, download=False)
+            title = info.get('title', 'InsightsWonders_Image')
+            
+            images = []
+            
+            # ১. মাল্টিপল ইমেজের ক্ষেত্রে (Instagram Carousel / FB Album)
+            if 'entries' in info:
+                for idx, entry in enumerate(info['entries']):
+                    img_url = entry.get('url') or entry.get('thumbnail')
+                    if img_url:
+                        images.append({
+                            'quality': f"Image {idx + 1} (HD)",
+                            'type': 'Image',
+                            'url': img_url
+                        })
+            
+            # ২. সিঙ্গেল ইমেজের ক্ষেত্রে
+            if not images:
+                img_url = info.get('url') or info.get('thumbnail')
+                
+                # অন্যান্য থাম্বনেইল ভার্সন থাকলে
+                thumbnails = info.get('thumbnails', [])
+                if thumbnails:
+                    best_thumb = thumbnails[-1].get('url')
+                    if best_thumb:
+                        img_url = best_thumb
+                
+                if img_url:
+                    images.append({
+                        'quality': 'Full HD Photo',
+                        'type': 'Image',
+                        'url': img_url
+                    })
+
+            if not images:
+                return jsonify({'success': False, 'error': 'No image found at this URL'}), 404
+
+            return jsonify({'success': True, 'title': title, 'variants': images})
+
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+# ৪. প্রক্সি ডাউনলোড রাউট (ইমেজ, ভিডিও ও অডিও সবার জন্য)
 @app.route('/proxy-download', methods=['GET'])
 def proxy_download():
     media_url = request.args.get('url')
@@ -125,7 +177,14 @@ def proxy_download():
     if not media_url:
         return "No URL provided", 400
 
-    ext = 'mp3' if file_type == 'Audio' else 'mp4'
+    # ফাইল টাইপ অনুযায়ী এক্সটেনশন নির্বাচন
+    if file_type == 'Audio':
+        ext = 'mp3'
+    elif file_type == 'Image':
+        ext = 'jpg'
+    else:
+        ext = 'mp4'
+
     filename = f"InsightsWonders_{file_type}_{int(request.args.get('t', 0))}.{ext}"
 
     def generate():
