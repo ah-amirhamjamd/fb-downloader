@@ -197,7 +197,7 @@ def download_image():
 #              YOUTUBE ROUTES
 # ==========================================
 
-# ৫. ইউটিউব ভিডিও ডাউনলোডার
+# ৫. ইউটিউব ভিডিও ডাউনলোডার (Fix 403 Forbidden)
 @app.route('/download-youtube-video', methods=['POST'])
 def download_youtube_video():
     data = request.get_json()
@@ -207,7 +207,16 @@ def download_youtube_video():
         return jsonify({'success': False, 'error': 'No URL provided'}), 400
 
     try:
-        ydl_opts = {'quiet': True, 'no_warnings': True}
+        ydl_opts = {
+            'quiet': True, 
+            'no_warnings': True,
+            'user_agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'extractor_args': {
+                'youtube': {
+                    'player_client': ['android', 'web']
+                }
+            }
+        }
 
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             info = ydl.extract_info(url, download=False)
@@ -235,7 +244,6 @@ def download_youtube_video():
                         'url': url_link
                     })
 
-            # অডিওসহ রেজুলেশনগুলো আগে ফিল্টার করা
             unique_variants = list({v['quality']: v for v in variants}.values())
             
             if not unique_variants:
@@ -247,7 +255,7 @@ def download_youtube_video():
         return jsonify({'success': False, 'error': f"Failed to process YouTube video: {str(e)}"}), 500
 
 
-# ৬. ইউটিউব অডিও/MP3 ডাউনলোডার
+# ৬. ইউটিউব অডিও/MP3 ডাউনলোডার (Fix 403 Forbidden)
 @app.route('/download-youtube-audio', methods=['POST'])
 def download_youtube_audio():
     data = request.get_json()
@@ -257,7 +265,16 @@ def download_youtube_audio():
         return jsonify({'success': False, 'error': 'No URL provided'}), 400
 
     try:
-        ydl_opts = {'quiet': True, 'no_warnings': True}
+        ydl_opts = {
+            'quiet': True, 
+            'no_warnings': True,
+            'user_agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'extractor_args': {
+                'youtube': {
+                    'player_client': ['android', 'web']
+                }
+            }
+        }
 
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             info = ydl.extract_info(url, download=False)
@@ -292,36 +309,3 @@ def download_youtube_audio():
 
     except Exception as e:
         return jsonify({'success': False, 'error': f"Failed to process YouTube audio: {str(e)}"}), 500
-
-
-# ==========================================
-#              PROXY DOWNLOAD
-# ==========================================
-
-@app.route('/proxy-download', methods=['GET'])
-def proxy_download():
-    media_url = request.args.get('url')
-    file_type = request.args.get('type', 'Video')
-
-    if not media_url:
-        return 'No URL provided', 400
-
-    ext = 'mp3' if file_type == 'Audio' else ('jpg' if file_type == 'Image' else 'mp4')
-    filename = f"InsightsWonders_{file_type}_{int(request.args.get('t', 0))}.{ext}"
-
-    def generate():
-        req = urllib.request.Request(
-            media_url, 
-            headers={'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'}
-        )
-        with urllib.request.urlopen(req) as res:
-            while chunk := res.read(1024 * 1024):
-                yield chunk
-
-    response = Response(generate(), content_type='application/octet-stream')
-    response.headers['Content-Disposition'] = f'attachment; filename="{filename}"'
-    return response
-
-
-if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=5000)
