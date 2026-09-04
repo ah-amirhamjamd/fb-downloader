@@ -200,7 +200,7 @@ def download_image():
 #              YOUTUBE ROUTES
 # ==========================================
 
-# ইউটিউব ভিডিও ডাউনলোডার (FIXED FORMAT & BLOCKS)
+# ইউটিউব ভিডিও ডাউনলোডার (FIXED FORMAT & PLAYLIST ISSUE)
 @app.route('/download-youtube-video', methods=['POST'])
 def download_youtube_video():
     data = request.get_json()
@@ -214,11 +214,9 @@ def download_youtube_video():
             'quiet': True, 
             'no_warnings': True,
             'noplaylist': True,
-            'extractor_args': {
-                'youtube': {
-                    'player_client': ['ios', 'android', 'web']
-                }
-            }
+            'format': 'bestvideo+bestaudio/best', # যেকোনো একটা ভিডিও ফরম্যাট হলেও নেবে
+            'ignoreerrors': True,
+            'user_agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
         }
         
         if os.path.exists(YT_COOKIE_FILE):
@@ -227,6 +225,9 @@ def download_youtube_video():
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             info = ydl.extract_info(url, download=False)
             
+            if not info:
+                return jsonify({'success': False, 'error': 'Could not fetch video info'}), 400
+
             if 'entries' in info and len(info['entries']) > 0:
                 info = info['entries'][0]
 
@@ -250,15 +251,13 @@ def download_youtube_video():
                         'url': url_link
                     })
 
-            # যদি কোনো ফিল্টার কাজ না করে সরাসরি ফার্স্ট এভেলেবল লিঙ্ক রিটার্ন করবে
-            if not variants:
-                for f in formats:
-                    if f.get('url'):
-                        variants.append({
-                            'quality': 'Standard Quality Video',
-                            'type': 'Video',
-                            'url': f.get('url')
-                        })
+            # যদি ফিল্টার থেকে কিছু না আসে তবে ডাইরেক্ট ফার্স্ট লিংকে ফলব্যাক করবে
+            if not variants and info.get('url'):
+                variants.append({
+                    'quality': 'Standard Quality Video',
+                    'type': 'Video',
+                    'url': info.get('url')
+                })
 
             unique_variants = list({v['quality']: v for v in variants}.values())
             
@@ -271,7 +270,7 @@ def download_youtube_video():
         return jsonify({'success': False, 'error': f"Failed to process YouTube video: {str(e)}"}), 500
 
 
-# ইউটিউব অডিও ডাউনলোডার (FIXED FORMAT & BLOCKS)
+# ইউটিউব অডিও ডাউনলোডার (FIXED FORMAT & PLAYLIST ISSUE)
 @app.route('/download-youtube-audio', methods=['POST'])
 def download_youtube_audio():
     data = request.get_json()
@@ -285,11 +284,9 @@ def download_youtube_audio():
             'quiet': True, 
             'no_warnings': True,
             'noplaylist': True,
-            'extractor_args': {
-                'youtube': {
-                    'player_client': ['ios', 'android', 'web']
-                }
-            }
+            'format': 'bestaudio/best', # যেকোনো একটা অডিও ফরম্যাট পেলেই নেবে
+            'ignoreerrors': True,
+            'user_agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
         }
 
         if os.path.exists(YT_COOKIE_FILE):
@@ -297,6 +294,9 @@ def download_youtube_audio():
 
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             info = ydl.extract_info(url, download=False)
+
+            if not info:
+                return jsonify({'success': False, 'error': 'Could not fetch audio info'}), 400
             
             if 'entries' in info and len(info['entries']) > 0:
                 info = info['entries'][0]
@@ -318,14 +318,12 @@ def download_youtube_audio():
                         'url': url_link
                     })
 
-            if not variants:
-                for f in formats:
-                    if f.get('url'):
-                        variants.append({
-                            'quality': 'Standard Quality Audio',
-                            'type': 'Audio',
-                            'url': f.get('url')
-                        })
+            if not variants and info.get('url'):
+                variants.append({
+                    'quality': 'Standard Quality Audio',
+                    'type': 'Audio',
+                    'url': info.get('url')
+                })
 
             unique_variants = list({v['quality']: v for v in variants}.values())
             
