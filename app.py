@@ -11,11 +11,12 @@ CORS(app)
 
 COOKIE_FILE = os.path.join(os.path.dirname(__file__), 'fb_cookies.txt')
 
-@app.route('/', methods=['GET'])
+# ১. হোম / হেলথ চেক রুট (UptimeRobot এর HEAD ও GET উভয় রিকোয়েস্ট গ্রহণ করবে)
+@app.route('/', methods=['GET', 'HEAD'])
 def home():
     return jsonify({'status': 'API is running'}), 200
 
-# ১. ভিডিও ডাউনলোডার (সংশোধিত ভিডিও-অডিও মার্জিন লজিক)
+# ২. ভিডিও ডাউনলোডার
 @app.route('/download-video', methods=['POST'])
 def download_video():
     data = request.get_json()
@@ -41,7 +42,7 @@ def download_video():
 
             variants = []
             
-            # সরাসরি ভিডিও লিঙ্ক (Primary Format)
+            # মূল কম্বাইন্ড ভিডিও স্ট্রিম
             if info.get('url'):
                 variants.append({
                     'quality': 'Standard Quality (With Audio)',
@@ -61,8 +62,10 @@ def download_video():
                 height = f.get('height')
                 res = f"{height}p" if height else ("HD" if "hd" in format_id or "hd" in url_link else "SD")
 
-                # ফেসবুকের মূল রেগুলার ফরম্যাট
-                if acodec != 'none' or 'hd' in format_id or 'sd' in format_id:
+                # অডিও স্ট্যাটাস চেক
+                if acodec != 'none' and acodec is not None:
+                    quality_name = f"Video ({res}) - With Audio"
+                elif "hd" in format_id or "sd" in format_id:
                     quality_name = f"Video ({res}) - With Audio"
                 else:
                     quality_name = f"Video ({res}) - Without Audio"
@@ -73,7 +76,6 @@ def download_video():
                     'url': url_link
                 })
 
-            # ফিল্টার করে ইউনিক রেজাল্ট বের করা
             unique_variants = list({v['quality']: v for v in variants}.values())
             
             if not unique_variants:
@@ -85,7 +87,7 @@ def download_video():
         return jsonify({'success': False, 'error': f"Failed to process video: {str(e)}"}), 500
 
 
-# ২. অডিও ডাউনলোডার
+# ৩. অডিও ডাউনলোডার
 @app.route('/download-audio', methods=['POST'])
 def download_audio():
     data = request.get_json()
@@ -125,7 +127,7 @@ def download_audio():
         return jsonify({'success': False, 'error': str(e)}), 500
 
 
-# ৩. ইমেজ ডাউনলোডার
+# ৪. ইমেজ ডাউনলোডার
 @app.route('/download-image', methods=['POST'])
 def download_image():
     data = request.get_json()
@@ -213,7 +215,7 @@ def download_image():
         return jsonify({'success': False, 'error': 'Failed to process image.'}), 500
 
 
-# ৪. প্রক্সি ডাউনলোড রাউট
+# ৫. প্রক্সি ডাউনলোড রাউট
 @app.route('/proxy-download', methods=['GET'])
 def proxy_download():
     media_url = request.args.get('url')
