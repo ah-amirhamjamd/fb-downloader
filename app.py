@@ -14,7 +14,7 @@ FB_COOKIE_FILE = os.path.join(os.path.dirname(__file__), 'fb_cookies.txt')
 YT_COOKIE_FILE = os.path.join(os.path.dirname(__file__), 'yt_cookies.txt')
 
 
-# ১. হেলথ চেক ও UptimeRobot রুট
+# ১. হেলথ চেক
 @app.route('/', methods=['GET', 'HEAD'])
 def home():
     return jsonify({'status': 'API is running'}), 200
@@ -24,7 +24,6 @@ def home():
 #              FACEBOOK ROUTES
 # ==========================================
 
-# ফেসবুক ভিডিও ডাউনলোডার
 @app.route('/download-video', methods=['POST'])
 def download_video():
     data = request.get_json()
@@ -86,7 +85,6 @@ def download_video():
         return jsonify({'success': False, 'error': f"Failed to process video: {str(e)}"}), 500
 
 
-# ফেসবুক অডিও ডাউনলোডার
 @app.route('/download-audio', methods=['POST'])
 def download_audio():
     data = request.get_json()
@@ -126,7 +124,6 @@ def download_audio():
         return jsonify({'success': False, 'error': str(e)}), 500
 
 
-# ফেসবুক ইমেজ ডাউনলোডার
 @app.route('/download-image', methods=['POST'])
 def download_image():
     data = request.get_json()
@@ -141,7 +138,7 @@ def download_image():
         fetch_url = raw_url.replace('www.facebook.com', 'mbasic.facebook.com')
 
         headers = {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
             'Accept-Language': 'en-US,en;q=0.9'
         }
 
@@ -197,10 +194,20 @@ def download_image():
 
 
 # ==========================================
-#              YOUTUBE ROUTES
+#       YOUTUBE ROUTES (INVIDIOUS API)
 # ==========================================
 
-# ইউটিউব ভিডিও ডাউনলোডার
+def get_yt_video_id(url):
+    """ইউআরএল থেকে ভিডিও আইডি বের করার ফাংশন"""
+    if 'youtu.be/' in url:
+        return url.split('youtu.be/')[1].split('?')[0].split('&')[0]
+    elif 'v=' in url:
+        return url.split('v=')[1].split('&')[0]
+    elif 'shorts/' in url:
+        return url.split('shorts/')[1].split('?')[0].split('&')[0]
+    return None
+
+
 @app.route('/download-youtube-video', methods=['POST'])
 def download_youtube_video():
     data = request.get_json()
@@ -209,72 +216,68 @@ def download_youtube_video():
     if not url:
         return jsonify({'success': False, 'error': 'No URL provided'}), 400
 
+    video_id = get_yt_video_id(url)
+    if not video_id:
+        return jsonify({'success': False, 'error': 'Invalid YouTube URL'}), 400
+
+    # Invidious ওপেন সোর্স এপিআই ইনস্ট্যান্স তালিকা
+    invidious_instances = [
+        "https://inv.nadeko.net",
+        "https://invidious.nerdvpn.de",
+        "https://invidious.flokinet.to",
+        "https://invidious.privacydev.net"
+    ]
+
+    for instance in invidious_instances:
+        try:
+            api_url = f"{instance}/api/v1/videos/{video_id}"
+            res = requests.get(api_url, timeout=7)
+            if res.status_code == 200:
+                data = res.json()
+                title = data.get('title', 'YouTube_Video')
+                variants = []
+
+                # ১. কম্বাইন্ড ফরম্যাট
+                for fmt in data.get('formatStreams', []):
+                    if fmt.get('url'):
+                        quality = fmt.get('qualityLabel', 'Video SD')
+                        variants.append({
+                            'quality': f"Video ({quality}) - With Audio",
+                            'type': 'Video',
+                            'url': fmt.get('url')
+                        })
+
+                # ২. অ্যাডাপ্টিভ ফরম্যাট (যদি কম্বাইন্ড না পাওয়া যায়)
+                if not variants:
+                    for fmt in data.get('adaptiveFormats', []):
+                        if fmt.get('url') and 'video' in fmt.get('type', ''):
+                            quality = fmt.get('qualityLabel', 'Video Stream')
+                            variants.append({
+                                'quality': f"Video ({quality})",
+                                'type': 'Video',
+                                'url': fmt.get('url')
+                            })
+
+                if variants:
+                    unique_variants = list({v['quality']: v for v in variants}.values())
+                    return jsonify({'success': True, 'title': title, 'variants': unique_variants})
+        except Exception:
+            continue
+
+    # এপিআই ব্যর্থ হলে yt-dlp ব্যাকআপ হিসেবে কল হবে
     try:
-        ydl_opts = {
-            'quiet': True,
-            'no_warnings': True,
-            'noplaylist': True,
-            'format': 'best', # যেকোনো এভেলেবল সেরা স্ট্রিম আনবে
-            'check_formats': False,
-            'extractor_args': {
-                'youtube': {
-                    'player_client': ['android', 'web']
-                }
-            }
-        }
-
-        if os.path.exists(YT_COOKIE_FILE):
-            ydl_opts['cookiefile'] = YT_COOKIE_FILE
-
+        ydl_opts = {'quiet': True, 'no_warnings': True, 'format': 'best'}
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            info = ydl.extract_info(url, download=False)
-
-            if not info:
-                return jsonify({'success': False, 'error': 'Could not fetch video info'}), 400
-
-            if 'entries' in info and len(info['entries']) > 0:
-                info = info['entries'][0]
-
-            title = info.get('title', 'YouTube_Video')
-            formats = info.get('formats', [])
-
-            variants = []
-            for f in formats:
-                url_link = f.get('url')
-                vcodec = f.get('vcodec')
-                acodec = f.get('acodec')
-                height = f.get('height')
-
-                if url_link and vcodec and vcodec != 'none':
-                    res = f"{height}p" if height else "SD"
-                    quality_name = f"Video ({res}) - With Audio" if (acodec and acodec != 'none') else f"Video ({res}) - Without Audio"
-
-                    variants.append({
-                        'quality': quality_name,
-                        'type': 'Video',
-                        'url': url_link
-                    })
-
-            # যদি ফিল্টার কাজ না করে ডাইরেক্ট ইউটিউব এর প্রাইমারি স্ট্রিম লিংক বসিয়ে দেবে
-            if not variants and info.get('url'):
-                variants.append({
-                    'quality': 'Standard Quality Video',
-                    'type': 'Video',
-                    'url': info.get('url')
-                })
-
-            unique_variants = list({v['quality']: v for v in variants}.values())
-
-            if not unique_variants:
-                return jsonify({'success': False, 'error': 'No video streams available.'}), 400
-
-            return jsonify({'success': True, 'title': title, 'variants': unique_variants})
-
+            info = ydl.extract_info(f"https://www.youtube.com/watch?v={video_id}", download=False)
+            return jsonify({
+                'success': True, 
+                'title': info.get('title', 'YouTube Video'),
+                'variants': [{'quality': 'Standard Quality Video', 'type': 'Video', 'url': info.get('url')}]
+            })
     except Exception as e:
-        return jsonify({'success': False, 'error': f"Failed to process YouTube video: {str(e)}"}), 500
+        return jsonify({'success': False, 'error': 'Unable to fetch video. YouTube server blocked the request.'}), 500
 
 
-# ইউটিউব অডিও ডাউনলোডার
 @app.route('/download-youtube-audio', methods=['POST'])
 def download_youtube_audio():
     data = request.get_json()
@@ -283,65 +286,43 @@ def download_youtube_audio():
     if not url:
         return jsonify({'success': False, 'error': 'No URL provided'}), 400
 
-    try:
-        ydl_opts = {
-            'quiet': True,
-            'no_warnings': True,
-            'noplaylist': True,
-            'format': 'bestaudio/best', # যেকোনো এভেলেবল অডিও আনবে
-            'check_formats': False,
-            'extractor_args': {
-                'youtube': {
-                    'player_client': ['android', 'web']
-                }
-            }
-        }
+    video_id = get_yt_video_id(url)
+    if not video_id:
+        return jsonify({'success': False, 'error': 'Invalid YouTube URL'}), 400
 
-        if os.path.exists(YT_COOKIE_FILE):
-            ydl_opts['cookiefile'] = YT_COOKIE_FILE
+    invidious_instances = [
+        "https://inv.nadeko.net",
+        "https://invidious.nerdvpn.de",
+        "https://invidious.flokinet.to",
+        "https://invidious.privacydev.net"
+    ]
 
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            info = ydl.extract_info(url, download=False)
+    for instance in invidious_instances:
+        try:
+            api_url = f"{instance}/api/v1/videos/{video_id}"
+            res = requests.get(api_url, timeout=7)
+            if res.status_code == 200:
+                data = res.json()
+                title = data.get('title', 'YouTube_Audio')
+                variants = []
 
-            if not info:
-                return jsonify({'success': False, 'error': 'Could not fetch audio info'}), 400
+                for fmt in data.get('adaptiveFormats', []):
+                    if fmt.get('url') and 'audio' in fmt.get('type', ''):
+                        bitrate = fmt.get('bitrate')
+                        kbps = f"{int(int(bitrate)/1000)}kbps" if bitrate else "HQ"
+                        variants.append({
+                            'quality': f"Audio MP3 ({kbps})",
+                            'type': 'Audio',
+                            'url': fmt.get('url')
+                        })
 
-            if 'entries' in info and len(info['entries']) > 0:
-                info = info['entries'][0]
+                if variants:
+                    unique_variants = list({v['quality']: v for v in variants}.values())
+                    return jsonify({'success': True, 'title': title, 'variants': unique_variants})
+        except Exception:
+            continue
 
-            title = info.get('title', 'YouTube_Audio')
-            formats = info.get('formats', [])
-
-            variants = []
-            for f in formats:
-                url_link = f.get('url')
-                acodec = f.get('acodec')
-
-                if url_link and acodec and acodec != 'none':
-                    abr = f.get('abr')
-                    quality_name = f"Audio MP3 ({int(abr)}kbps)" if abr else "High Quality MP3"
-                    variants.append({
-                        'quality': quality_name,
-                        'type': 'Audio',
-                        'url': url_link
-                    })
-
-            if not variants and info.get('url'):
-                variants.append({
-                    'quality': 'Standard Quality Audio',
-                    'type': 'Audio',
-                    'url': info.get('url')
-                })
-
-            unique_variants = list({v['quality']: v for v in variants}.values())
-
-            if not unique_variants:
-                return jsonify({'success': False, 'error': 'No audio streams available.'}), 400
-
-            return jsonify({'success': True, 'title': title, 'variants': unique_variants})
-
-    except Exception as e:
-        return jsonify({'success': False, 'error': f"Failed to process YouTube audio: {str(e)}"}), 500
+    return jsonify({'success': False, 'error': 'Unable to fetch audio stream. Please try another link.'}), 500
 
 
 # ==========================================
